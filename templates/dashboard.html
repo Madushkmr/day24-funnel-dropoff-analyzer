@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Funnel Drop-off Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0f1420; color: #e8ecf5; }
+  header { padding: 20px 28px; border-bottom: 1px solid #232a3d; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: #8b93a8; font-size: 13px; }
+  main { padding: 24px 28px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; }
+  .card { background: #161b29; border: 1px solid #232a3d; border-radius: 10px; padding: 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 15px; color: #b7c0d8; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #232a3d; }
+  th { color: #8b93a8; font-weight: 500; }
+  .sig { color: #ff6b6b; font-weight: 600; }
+  .narrative { line-height: 1.6; font-size: 14px; color: #d3d8e6; }
+  .rec { margin: 4px 0; font-size: 13px; }
+  .full { grid-column: 1 / -1; }
+  #refreshBtn { background: #4c6ef5; border: none; color: white; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .loading { color: #8b93a8; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Funnel Drop-off Analyzer</h1>
+  <p>visit &rarr; signup &rarr; activate &rarr; purchase &rarr; retain — Day 24 of a daily BI/AI app series</p>
+  <button id="refreshBtn">Recompute funnel</button>
+</header>
+<main>
+  <div class="card">
+    <h2>Overall funnel</h2>
+    <canvas id="funnelChart" height="180"></canvas>
+  </div>
+  <div class="card">
+    <h2>Narrative summary</h2>
+    <div id="narrative" class="narrative loading">Loading…</div>
+    <h2 style="margin-top:16px;">Recommendations</h2>
+    <div id="recs"></div>
+  </div>
+  <div class="card full">
+    <h2>Segment breakdown (channel &amp; device)</h2>
+    <table id="segTable">
+      <thead><tr><th>Dimension</th><th>Segment</th><th>Transition</th><th>Segment CVR</th><th>Rest CVR</th><th>p-value</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script>
+async function load() {
+  document.getElementById('narrative').textContent = 'Loading…';
+  const res = await fetch('/api/funnel');
+  const data = await res.json();
+  const funnel = data.report.overall_funnel;
+
+  const ctx = document.getElementById('funnelChart');
+  if (window._chart) window._chart.destroy();
+  window._chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: funnel.map(f => f.stage),
+      datasets: [{ label: 'Users', data: funnel.map(f => f.users), backgroundColor: '#4c6ef5' }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  document.getElementById('narrative').textContent = data.narrative.summary;
+  document.getElementById('narrative').classList.remove('loading');
+  document.getElementById('recs').innerHTML = data.narrative.recommendations
+    .map(r => `<div class="rec">• ${r}</div>`).join('');
+
+  const tbody = document.querySelector('#segTable tbody');
+  tbody.innerHTML = '';
+  for (const [dim, segments] of Object.entries(data.report.segments)) {
+    for (const seg of segments) {
+      for (const t of seg.transitions) {
+        const tr = document.createElement('tr');
+        const sigClass = t.significant_underperformance ? 'sig' : '';
+        tr.innerHTML = `<td>${dim}</td><td>${seg.segment}</td>` +
+          `<td>${t.from_stage} → ${t.to_stage}</td>` +
+          `<td class="${sigClass}">${t.segment_conversion_pct}%</td>` +
+          `<td>${t.rest_conversion_pct}%</td>` +
+          `<td class="${sigClass}">${t.p_value}${t.significant_underperformance ? ' *' : ''}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+  }
+}
+document.getElementById('refreshBtn').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>
